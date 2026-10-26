@@ -1,0 +1,34 @@
+name: Production Access Scheduler
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run-production-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Trigger CRM production access scheduler
+        env:
+          CRM_SCHEDULER_SECRET: ${{ secrets.GCB_PRODUCTION_ACCESS_SCHEDULER_SECRET }}
+          CRM_SITE_BYPASS_TOKEN: ${{ secrets.CRM_SITE_BYPASS_TOKEN }}
+        run: |
+          response=$(curl --silent --show-error \
+            --write-out "\n%{http_code}" \
+            --request POST \
+            --header "Authorization: Bearer ${CRM_SCHEDULER_SECRET}" \
+            --header "OAI-Sites-Authorization: Bearer ${CRM_SITE_BYPASS_TOKEN}" \
+            "https://good-choice-basketball-crm.zane-graham22.chatgpt.site/api/internal/production-access/run")
+
+          body=$(echo "$response" | sed '$d')
+          status=$(echo "$response" | tail -n 1)
+
+          echo "$body"
+
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Scheduler request failed with HTTP $status"
+            exit 1
+          fi
