@@ -4,14 +4,24 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Choose what to run"
+        required: true
+        default: "run"
+        type: choice
+        options:
+          - run
+          - activate
 
 jobs:
-  run-production-access:
+  production-access:
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
     steps:
       - name: Trigger CRM production access scheduler
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.action == 'run' }}
         env:
           CRM_SCHEDULER_SECRET: ${{ secrets.GCB_PRODUCTION_ACCESS_SCHEDULER_SECRET }}
           CRM_SITE_BYPASS_TOKEN: ${{ secrets.CRM_SITE_BYPASS_TOKEN }}
@@ -30,5 +40,33 @@ jobs:
 
           if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
             echo "Scheduler request failed with HTTP $status"
+            exit 1
+          fi
+
+      - name: Activate CRM production access delivery
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'activate' }}
+        env:
+          CRM_ACTIVATION_SECRET: ${{ secrets.GCB_PRODUCTION_ACCESS_ACTIVATION_SECRET }}
+          CRM_SITE_BYPASS_TOKEN: ${{ secrets.CRM_SITE_BYPASS_TOKEN }}
+        run: |
+          if [ -z "$CRM_ACTIVATION_SECRET" ]; then
+            echo "Missing GCB_PRODUCTION_ACCESS_ACTIVATION_SECRET"
+            exit 1
+          fi
+
+          response=$(curl --silent --show-error \
+            --write-out "\n%{http_code}" \
+            --request POST \
+            --header "Authorization: Bearer ${CRM_ACTIVATION_SECRET}" \
+            --header "OAI-Sites-Authorization: Bearer ${CRM_SITE_BYPASS_TOKEN}" \
+            "https://good-choice-basketball-crm.zane-graham22.chatgpt.site/api/internal/production-access/activate")
+
+          body=$(echo "$response" | sed '$d')
+          status=$(echo "$response" | tail -n 1)
+
+          echo "$body"
+
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Activation request failed with HTTP $status"
             exit 1
           fi
